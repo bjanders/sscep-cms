@@ -386,10 +386,10 @@ int pkcs7_verify_unwrap(struct scep *s , char * cachainfile ) {
 	STACK_OF(PKCS7_SIGNER_INFO)	*sk;
 	PKCS7_SIGNER_INFO		*si;
 	unsigned char			buffer[1024];
-    X509   				*signercert;
-    FILE 				*fp;
+	X509   				*signercert;
+	FILE 				*fp;
 
-    X509_STORE_CTX 		*cert_ctx;
+	X509_STORE_CTX 		*cert_ctx;
 
 	X509_STORE *cert_store=NULL;
 
@@ -420,11 +420,11 @@ int pkcs7_verify_unwrap(struct scep *s , char * cachainfile ) {
 	}
 
 	 /* Make sure this is a signed PKCS#7 */
-        if (!PKCS7_type_is_signed(s->reply_p7)) {
+	if (!PKCS7_type_is_signed(s->reply_p7)) {
 		fprintf(stderr, "%s: PKCS#7 is not signed!\n", pname);
 		ERR_print_errors_fp(stderr);
 		exit (SCEP_PKISTATUS_P7);
-        }
+	}
 
 	/* Create BIO for content data */
 	pkcs7bio = PKCS7_dataInit(s->reply_p7, NULL);
@@ -484,25 +484,25 @@ int pkcs7_verify_unwrap(struct scep *s , char * cachainfile ) {
 
 	X509_STORE_set_flags(cert_store, 0);
 
-    //X509_STORE_load_locations(cert_store,certsfile,certsdir);
-    X509_STORE_load_locations(cert_store,cachainfile,NULL);
+	//X509_STORE_load_locations(cert_store,certsfile,certsdir);
+	X509_STORE_load_locations(cert_store,cachainfile,NULL);
 
-    if(!(cert_ctx = X509_STORE_CTX_new())) {;
-    fprintf(stderr, "%s: error creating certificate chain \n", pname);
-    }
+	if(!(cert_ctx = X509_STORE_CTX_new())) {;
+		fprintf(stderr, "%s: error creating certificate chain \n", pname);
+	}
 
-    if(!X509_STORE_CTX_init(cert_ctx,cert_store,signercert,NULL))
-    {
-    	fprintf(stderr, "%s: error verifying certificates \n", pname);
-    }
+	if(!X509_STORE_CTX_init(cert_ctx,cert_store,signercert,NULL))
+	{
+		fprintf(stderr, "%s: error verifying certificates \n", pname);
+	}
 
-    //X509_STORE_CTX_set_purpose(cert_ctx, purpose);
+	//X509_STORE_CTX_set_purpose(cert_ctx, purpose);
 
-    if( !X509_verify_cert(cert_ctx)) {
-    	fprintf(stderr, "%s: The signer certificate verification failed \n", pname);
-    }
+	if( !X509_verify_cert(cert_ctx)) {
+		fprintf(stderr, "%s: The signer certificate verification failed \n", pname);
+	}
 
-    /*Write pem encoded signer certificate */
+	/*Write pem encoded signer certificate */
 	if(w_flag)
 	{
 
@@ -557,7 +557,7 @@ int pkcs7_unwrap(struct scep *s) {
 	BIO				*pkcs7bio;
 	int				i, len, bytes, used;
 	STACK_OF(PKCS7_SIGNER_INFO)	*sk;
-	PKCS7				*p7enc;
+	CMS_ContentInfo			*cmsenc;
 	PKCS7_SIGNER_INFO		*si;
 	STACK_OF(X509_ATTRIBUTE)	*attribs;
 	char				*p;
@@ -586,11 +586,11 @@ int pkcs7_unwrap(struct scep *s) {
 	}
 
 	 /* Make sure this is a signed PKCS#7 */
-        if (!PKCS7_type_is_signed(s->reply_p7)) {
+	if (!PKCS7_type_is_signed(s->reply_p7)) {
 		fprintf(stderr, "%s: PKCS#7 is not signed!\n", pname);
 		ERR_print_errors_fp(stderr);
 		exit (SCEP_PKISTATUS_P7);
-        }
+	}
 
 	/* Create BIO for content data */
 	pkcs7bio = PKCS7_dataInit(s->reply_p7, NULL);
@@ -802,22 +802,25 @@ int pkcs7_unwrap(struct scep *s) {
 		recipientkey = rsa;
 	}
 
-	p7enc = d2i_PKCS7_bio(outbio, NULL);
-	if (p7enc == NULL) {
-		fprintf(stderr, "%s: cannot read inner PKCS#7\n", pname);
+	cmsenc = d2i_CMS_bio(outbio, NULL);
+	if (cmsenc == NULL) {
+		fprintf(stderr, "%s: cannot read inner CMS\n", pname);
 		ERR_print_errors_fp(stderr);
 		exit (SCEP_PKISTATUS_P7);
 	}
 	if (d_flag) {
-		printf("%s: printing PEM fomatted PKCS#7\n", pname);
-		PEM_write_PKCS7(stdout, p7enc);
+		printf("%s: printing PEM fomatted CMS\n", pname);
+		PEM_write_CMS(stdout, cmsenc);
 	}
 
 	/* Decrypt the data  */
 	outbio = BIO_new(BIO_s_mem());
-	if (d_flag)
-		printf("%s: decrypting inner PKCS#7\n",pname);
-	if (PKCS7_decrypt(p7enc, recipientkey, recipientcert, outbio, 0) == 0) {
+	if (d_flag) {
+		printf("%s: decrypting inner CMS\n",pname);
+		EC_KEY *ec_key = EVP_PKEY_get1_EC_KEY(recipientkey);
+		PEM_write_ECPrivateKey(stderr, ec_key, NULL, NULL, 0, NULL, NULL);
+	}
+	if (CMS_decrypt(cmsenc, recipientkey, recipientcert, NULL, outbio, 0) == 0) {
 		fprintf(stderr, "%s: error decrypting inner PKCS#7\n", pname);
 		ERR_print_errors_fp(stderr);
 		exit (SCEP_PKISTATUS_P7);
@@ -830,7 +833,7 @@ int pkcs7_unwrap(struct scep *s) {
 		printf("%s: PKCS#7 payload size: %d bytes\n", pname,
 			s->reply_len);
 	BIO_set_flags(outbio, BIO_FLAGS_MEM_RDONLY);
-	s->reply_p7 = d2i_PKCS7_bio(outbio, NULL);
+	s->reply_cms = d2i_CMS_bio(outbio, NULL);
 
 	return (0);
 

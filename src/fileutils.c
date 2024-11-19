@@ -23,18 +23,18 @@ EVP_PKEY *rsa;
 EVP_PKEY *renewal_key;
 X509_CRL *crl;
 
-/* Open the inner, decrypted PKCS7 and try to write CRL.  */ 
+/* Open the inner, decrypted PKCS7 and try to write CRL.  */
 void
 write_crl(struct scep *s) {
 	PKCS7			*p7;
 	STACK_OF(X509_CRL)	*crls;
-	X509_CRL		*crl;	
+	X509_CRL		*crl;
 	FILE			*fp;
 
 	/* Get CRL */
 	p7 = s->reply_p7;
 	crls = p7->d.sign->crl;
-	
+
 	/* We expect only one CRL: */
 	crl = sk_X509_CRL_value(crls, 0);
 	if (crl == NULL) {
@@ -67,7 +67,7 @@ write_crl(struct scep *s) {
 	(void)fclose(fp);
 }
 
-static int 
+static int
 compare_subject(X509 * cert)
 {
 	char buffer[1024];
@@ -81,9 +81,9 @@ compare_subject(X509 * cert)
 	if (rc)
 	{
 		/* X509_NAME_cmp should return 0 when X509_get_subject_name()
-                 * and X509_REQ_get_subject_name() match. There is a bug
+		 * and X509_REQ_get_subject_name() match. There is a bug
 		 * report on that issue (1422).
-                 * 
+		 *
 		 * Assume we cannot trust X509_NAME_cmp() and perform a strcmp()
 		 * when X509_NAME_cmp returns true (which is in fact false ;-))
 		 */
@@ -99,10 +99,10 @@ compare_subject(X509 * cert)
 	return rc;
 } /* is_same_cn */
 
-/* Open the inner, decrypted PKCS7 and try to write cert.  */ 
+/* Open the inner, decrypted CMS and try to write cert.  */
 void
 write_local_cert(struct scep *s) {
-	PKCS7			*p7;
+	CMS_ContentInfo 	*cms;
 	STACK_OF(X509)		*certs;
 	X509			*cert = NULL;
 	FILE			*fp;
@@ -111,12 +111,12 @@ write_local_cert(struct scep *s) {
 	localcert = NULL;
 
 	/* Get certs */
-	p7 = s->reply_p7;
-	certs = p7->d.sign->cert;
-       
-        if (v_flag) {
+	cms = s->reply_cms;
+	certs = CMS_get1_certs(cms);
+
+	if (v_flag) {
 		printf ("write_local_cert(): found %d cert(s)\n", sk_X509_num(certs));
-        }
+	}
 
 	/* Find cert */
 	for (i = 0; i < sk_X509_num(certs); i++) {
@@ -127,23 +127,23 @@ write_local_cert(struct scep *s) {
 				"  subject: '%s'\n", pname,
 				X509_NAME_oneline(X509_get_subject_name(cert),
 					buffer, sizeof(buffer)));
-			printf("  issuer: %s\n", 
+			printf("  issuer: %s\n",
 				X509_NAME_oneline(X509_get_issuer_name(cert),
 					buffer, sizeof(buffer)));
-			printf("  request_subject: '%s'\n", 
+			printf("  request_subject: '%s'\n",
 				X509_NAME_oneline(X509_REQ_get_subject_name(request),
-                                        buffer, sizeof(buffer)));
+					buffer, sizeof(buffer)));
 		}
 		/* The subject has to match that of our request */
 		if (!compare_subject(cert)) {
-			
+
 			if (v_flag)
 				printf ("CN's of request and certificate matched!\n");
 		} else {
 			fprintf(stderr, "%s: Subject of our request does not match that of the returned Certificate!\n", pname);
 			//exit (SCEP_PKISTATUS_FILE);
 		}
-		
+
 		/* The subject cannot be the issuer (selfsigned) */
 		if (X509_NAME_cmp(X509_get_subject_name(cert),
 			X509_get_issuer_name(cert))) {
@@ -181,10 +181,10 @@ write_local_cert(struct scep *s) {
 	(void)fclose(fp);
 }
 
-/* Open the inner, decrypted PKCS7 and try to write cert.  */ 
+/* Open the inner, decrypted PKCS7 and try to write cert.  */
 void
 write_other_cert(struct scep *s) {
-	PKCS7			*p7;
+	CMS_ContentInfo 	*cms;
 	STACK_OF(X509)		*certs;
 	X509			*cert = NULL;
 	FILE			*fp;
@@ -192,9 +192,9 @@ write_other_cert(struct scep *s) {
 	X509 *othercert = NULL;
 
 	/* Get certs */
-	p7 = s->reply_p7;
-	certs = p7->d.sign->cert;
-	
+	cms = s->reply_cms;
+	certs = CMS_get1_certs(cms);
+
 	/* Find cert */
 	for (i = 0; i < sk_X509_num(certs); i++) {
 		char buffer[1024];
@@ -205,16 +205,16 @@ write_other_cert(struct scep *s) {
 				"  subject: %s\n", pname,
 				X509_NAME_oneline(X509_get_subject_name(cert),
 					buffer, sizeof(buffer)));
-			printf("  issuer: %s\n", 
+			printf("  issuer: %s\n",
 				X509_NAME_oneline(X509_get_issuer_name(cert),
 					buffer, sizeof(buffer)));
 		}
 		/* The serial has to match to requested one */
 		if (!ASN1_INTEGER_cmp(X509_get_serialNumber(cert),
 				s->ias_getcert->serial)) {
-				othercert = cert;	
+				othercert = cert;
 				break;
-		}	
+		}
 	}
 	if (othercert == NULL) {
 		fprintf(stderr, "%s: cannot find certificate\n", pname);
@@ -247,7 +247,7 @@ write_other_cert(struct scep *s) {
 
 
 /*
- * Open the inner, decrypted PKCS7 and try to write CA/RA certificates 
+ * Open the inner, decrypted PKCS7 and try to write CA/RA certificates
  */
 int
 write_ca_ra(struct http_reply *s) {
@@ -257,8 +257,8 @@ write_ca_ra(struct http_reply *s) {
 	X509			*cert = NULL;
 	FILE			*fp = NULL;
 	int			c, i, index;
-        unsigned int		n;
-        unsigned char		md[EVP_MAX_MD_SIZE];
+	unsigned int		n;
+	unsigned char		md[EVP_MAX_MD_SIZE];
 	X509_EXTENSION		*ext;
 
 	/* Create read-only memory bio */
@@ -283,7 +283,7 @@ write_ca_ra(struct http_reply *s) {
 	if (certs == NULL) {
 		fprintf(stderr, "%s: cannot find certificates\n", pname);
 		exit (SCEP_PKISTATUS_FILE);
-	} 
+	}
 
 	/* Verify the chain
 	 * XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -307,7 +307,7 @@ write_ca_ra(struct http_reply *s) {
 					buffer, sizeof(buffer)));
 		}
 		if (v_flag)
-		printf("  issuer: %s\n", 
+		printf("  issuer: %s\n",
 			X509_NAME_oneline(X509_get_issuer_name(cert),
 					buffer, sizeof(buffer)));
 		if (!X509_digest(cert, fp_alg, md, &n)) {
@@ -495,9 +495,9 @@ void read_cert_Engine(X509** cert, char* id, ENGINE *e, char* filename)
 	LPTSTR pszName;
 	LPSTR str;
 	FILE *certfile;
-	
+
 	store = CertOpenSystemStore(0, L"MY");
-	
+
 	ctx = CertFindCertificateInStore(store, MY_ENCODING_TYPE, 0, CERT_FIND_SUBJECT_STR, (LPCSTR) id, NULL);
 	if(!ctx) {
 		while(ctx = CertEnumCertificatesInStore(store, ctx))
@@ -574,7 +574,7 @@ read_request(void) {
 	FILE *reqfile;
 
 	/* Read certificate request file */
-	if (!r_flag || 
+	if (!r_flag ||
 #ifdef WIN32
 		(fopen_s(&reqfile, r_char, "r")))
 #else
@@ -591,4 +591,3 @@ read_request(void) {
 	}
 	fclose(reqfile);
 }
-

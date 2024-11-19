@@ -64,6 +64,7 @@
 #include <openssl/md5.h>
 #include <openssl/objects.h>
 #include <openssl/ssl.h>
+#include <openssl/cms.h>
 /* Global defines */
 
 #define	VERSION "0.10.0"
@@ -137,7 +138,7 @@
 	"Integrity check failed"
 #define SCEP_FAILINFO_BADREQ		2
 #define SCEP_FAILINFO_BADREQ_STR	\
-	"Transaction not permitted or supported" 
+	"Transaction not permitted or supported"
 #define SCEP_FAILINFO_BADTIME		3
 #define SCEP_FAILINFO_BADTIME_STR	\
 	"Message time field was not sufficiently close to the system time"
@@ -268,8 +269,9 @@ struct scep {
 	PKCS7_ISSUER_AND_SERIAL *ias_getcrl;
 
 	/* Reply */
-	PKCS7 *reply_p7;
-	char *reply_payload;	
+	PKCS7 *reply_p7; /* FIX: Make this obsolete, and use only reply_cms */
+	CMS_ContentInfo *reply_cms;
+	char *reply_payload;
 	int reply_len;
 
 	/* Engine */
